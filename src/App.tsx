@@ -7,6 +7,7 @@ import { LogFood } from "./components/LogFood";
 import { Goals, AddGoal } from "./components/Goals";
 import { Recipes, AddRecipe } from "./components/Recipes";
 import { Body, LogMetric } from "./components/Body";
+import { Sync } from "./components/Sync";
 import { loggedNutrients, type FoodLog } from "./lib/nutrition";
 
 function timeLabel(at: number): string {
@@ -19,9 +20,29 @@ export default function App() {
   const [addingGoal, setAddingGoal] = useState(false);
   const [addingRecipe, setAddingRecipe] = useState(false);
   const [loggingMetric, setLoggingMetric] = useState(false);
+  const [sync, setSync] = useState(false);
 
   if (h.status === "loading") return null;
-  if (h.status === "setup") return <Welcome onSetup={h.setup} busy={h.busy} />;
+  if (h.status === "setup") {
+    return (
+      <>
+        <Welcome onSetup={h.setup} busy={h.busy} onSignIn={() => setSync(true)} />
+        {sync ? (
+          <Sync
+            account={h.account}
+            syncing={h.syncing}
+            syncError={h.syncError}
+            canCreate={false}
+            onCreate={h.connectCreate}
+            onSignIn={h.connectSignIn}
+            onDisconnect={h.disconnect}
+            onSyncNow={h.syncNow}
+            onClose={() => setSync(false)}
+          />
+        ) : null}
+      </>
+    );
+  }
   if (h.status === "locked") {
     return (
       <LockScreen
@@ -46,6 +67,13 @@ export default function App() {
           {h.canBiometric && !h.hasBiometric ? (
             <button className="btn btn-sm" onClick={() => void h.enableBiometric()}>Quick unlock</button>
           ) : null}
+          <button
+            className="btn btn-sm"
+            onClick={() => setSync(true)}
+            title={h.account ? `Syncing as ${h.account}` : "Sync across devices"}
+          >
+            {h.syncing ? "Syncing…" : h.account ? "Synced" : "Sync"}
+          </button>
           <button className="btn btn-sm" onClick={h.lock} title="Lock the vault">Lock</button>
         </div>
       </header>
@@ -116,6 +144,19 @@ export default function App() {
       {addingGoal ? <AddGoal onAdd={h.addGoal} onClose={() => setAddingGoal(false)} /> : null}
       {addingRecipe ? <AddRecipe onAdd={h.addRecipe} onClose={() => setAddingRecipe(false)} /> : null}
       {loggingMetric ? <LogMetric onLog={h.logMetric} onClose={() => setLoggingMetric(false)} /> : null}
+      {sync ? (
+        <Sync
+          account={h.account}
+          syncing={h.syncing}
+          syncError={h.syncError}
+          canCreate={true}
+          onCreate={h.connectCreate}
+          onSignIn={h.connectSignIn}
+          onDisconnect={h.disconnect}
+          onSyncNow={h.syncNow}
+          onClose={() => setSync(false)}
+        />
+      ) : null}
     </div>
   );
 }

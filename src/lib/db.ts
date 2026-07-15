@@ -147,6 +147,58 @@ export async function clearDevice(): Promise<void> {
   await (await db()).delete("device", "device");
 }
 
+// Records awaiting upload, including dirty tombstones.
+export async function dirtyRecords(): Promise<{
+  foodLogs: StoredFoodLog[];
+  metrics: StoredMetric[];
+  goals: StoredGoal[];
+  recipes: StoredRecipe[];
+}> {
+  const d = await db();
+  return {
+    foodLogs: (await d.getAll("foodLogs")).filter((r) => r.dirty),
+    metrics: (await d.getAll("metrics")).filter((r) => r.dirty),
+    goals: (await d.getAll("goals")).filter((r) => r.dirty),
+    recipes: (await d.getAll("recipes")).filter((r) => r.dirty),
+  };
+}
+
+// ---- generic sync accessors ---------------------------------------------
+// The sync engine treats the four syncable stores uniformly (a kind + an id).
+// These map a kind to its store and give get/put/clear-dirty/mark-all by kind,
+// so lib/sync.ts stays small.
+
+export type SyncKind = "foodLog" | "metric" | "goal" | "recipe";
+export type AnyStored = StoredFoodLog | StoredMetric | StoredGoal | StoredRecipe;
+const KIND_STORE: Record<SyncKind, "foodLogs" | "metrics" | "goals" | "recipes"> = {
+  foodLog: "foodLogs", metric: "metrics", goal: "goals", recipe: "recipes",
+};
+export const SYNC_KINDS: SyncKind[] = ["foodLog", "metric", "goal", "recipe"];
+
+export async function getStoredByKind(kind: SyncKind, id: string): Promise<AnyStored | undefined> {
+  return (await db()).get(KIND_STORE[kind], id) as Promise<AnyStored | undefined>;
+}
+export async function putStoredByKind(kind: SyncKind, rec: AnyStored): Promise<void> {
+  // idb's types are per-literal-store; the runtime store is chosen by kind.
+  await (await db()).put(KIND_STORE[kind], rec as never);
+}
+// Clear the dirty flag after a successful push — only if the record hasn't
+// changed since (updatedAt still matches), so a mid-sync edit is never dropped.
+export async function clearDirtyByKind(kind: SyncKind, id: string, updatedAt: number): Promise<void> {
+  const d = await db();
+  const rec = await d.get(KIND_STORE[kind], id);
+  if (rec && rec.dirty && rec.updatedAt === updatedAt) await d.put(KIND_STORE[kind], { ...rec, dirty: false } as never);
+}
+// Mark every syncable record dirty — used when connecting a NEW account, so the
+// whole local log uploads even if it was previously synced elsewhere.
+export async function markAllDirty(): Promise<void> {
+  const d = await db();
+  for (const kind of SYNC_KINDS) {
+    const store = KIND_STORE[kind];
+    for (const r of await d.getAll(store)) if (!r.dirty) await d.put(store, { ...r, dirty: true } as never);
+  }
+}
+
 const ALL_STORES = ["vault", "foodLogs", "metrics", "goals", "recipes", "sync", "device"] as const;
 
 // Wipe everything (forget this device). Without the passphrase nothing readable

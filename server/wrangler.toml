@@ -1,0 +1,13 @@
+name = "hearth-server"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hearth"
+database_id = "725e91a7-47b2-46ff-9b7c-9bc5651bc233"
+
+[vars]
+# Comma-separated CORS allowlist of origins allowed to call this API.
+# TOKEN_SECRET is a *secret*, set separately:  npx wrangler secret put TOKEN_SECRET
+ALLOWED_ORIGIN = "https://hearth.garden,https://hearth.pages.dev"

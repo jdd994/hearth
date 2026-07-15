@@ -1,12 +1,14 @@
 # Security headers, applied to every response. The CSP is deliberately strict:
 # Hearth is fully self-contained, so nothing loads or talks to a third party.
 #
-# `connect-src 'self'` — the food/nutrient database is BUNDLED (tier 0, offline),
-# so no outbound calls are needed. When barcode lookup lands (tier 1), add
-# Open Food Facts' API host here — and only that. Never an analytics host; there
-# is no analytics, and nothing that could ever see what someone eats.
+# `connect-src` — the food/nutrient database is BUNDLED (tier 0, offline), so the
+# only outbound host is our own sync server, which sees nothing but opaque
+# ciphertext + non-secret metadata (never the passphrase or the key). When
+# barcode lookup lands (tier 1), add Open Food Facts' API host here — and only
+# that. Never an analytics host; there is no analytics, and nothing that could
+# ever see what someone eats.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://hearth-server.jdd994.workers.dev; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'; upgrade-insecure-requests
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY

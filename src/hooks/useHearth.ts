@@ -11,6 +11,8 @@ import {
   wrapPrivateKey, PBKDF2_ITERATIONS,
 } from "../lib/crypto";
 import * as db from "../lib/db";
+import * as api from "../lib/api";
+import { syncNow } from "../lib/sync";
 import { biometricSupported, enrollBiometric, unlockBiometric } from "../lib/biometric";
 import {
   dayBounds, windowTotal, goalProgress, recipeAsFood,
@@ -37,6 +39,18 @@ export type Hearth = {
   canBiometric: boolean;
   hasBiometric: boolean;
 
+  // Cross-device sync. `account` is the connected email, or null when this log
+  // lives only on this device. The account (login) is a separate secret from the
+  // passphrase: the server authenticates the account and stores opaque
+  // ciphertext; the passphrase decrypts it and never leaves the device.
+  account: string | null;
+  syncing: boolean;
+  syncError: string | null;
+  connectCreate: (email: string, password: string) => Promise<boolean>;
+  connectSignIn: (email: string, password: string) => Promise<boolean>;
+  disconnect: () => Promise<void>;
+  syncNow: () => Promise<void>;
+
   setup: (passphrase: string) => Promise<void>;
   unlock: (passphrase: string) => Promise<boolean>;
   unlockWithBiometric: () => Promise<boolean>;
@@ -60,9 +74,14 @@ const uid = () => crypto.randomUUID();
 
 export function useHearth(): Hearth {
   const keyRef = useRef<CryptoKey | null>(null);
+  const tokenRef = useRef<string | null>(null);
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [account, setAccount] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [logs, setLogs] = useState<FoodLog[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -72,11 +91,15 @@ export function useHearth(): Hearth {
 
   useEffect(() => {
     (async () => {
-      const [vault, device, supported] = await Promise.all([
-        db.getVault(), db.getDevice(), biometricSupported(),
+      const [vault, device, supported, sync] = await Promise.all([
+        db.getVault(), db.getDevice(), biometricSupported(), db.getSyncState(),
       ]);
       setCanBiometric(supported);
       setHasBiometric(!!device);
+      if (sync?.token) {
+        tokenRef.current = sync.token;
+        setAccount(sync.accountEmail ?? null);
+      }
       setStatus(vault ? "locked" : "setup");
     })();
   }, []);
@@ -115,6 +138,35 @@ export function useHearth(): Hearth {
     setMetrics(m);
   }, []);
 
+  // ---- sync ---------------------------------------------------------------
+  // Reconcile with the server: pull others' changes (LWW by updatedAt), then
+  // push ours. Only ciphertext moves. If the pull changed anything, re-decrypt
+  // the view so the screen matches the log.
+  const runSync = useCallback(async () => {
+    const token = tokenRef.current;
+    const key = keyRef.current;
+    if (!token || !key) return;
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      const changed = await syncNow(token);
+      if (changed) await loadAll(key);
+    } catch (e) {
+      // A failed sync is never fatal: data is safe locally and dirty records
+      // stay dirty, so the next attempt retries them.
+      setSyncError(e instanceof Error ? e.message : "Couldn't reach sync just now.");
+    } finally {
+      setSyncing(false);
+    }
+  }, [loadAll]);
+
+  // Debounced sync after a write. Coalesces a burst of edits into one round-trip.
+  const scheduleSync = useCallback(() => {
+    if (!tokenRef.current) return;
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => void runSync(), 1500);
+  }, [runSync]);
+
   const setup = useCallback(async (passphrase: string) => {
     setBusy(true);
     setError(null);
@@ -139,7 +191,8 @@ export function useHearth(): Hearth {
     keyRef.current = key;
     await loadAll(key);
     setStatus("unlocked");
-  }, [loadAll]);
+    if (tokenRef.current) void runSync();
+  }, [loadAll, runSync]);
 
   const unlock = useCallback(async (passphrase: string): Promise<boolean> => {
     setBusy(true);
@@ -196,6 +249,86 @@ export function useHearth(): Hearth {
     setStatus("locked");
   }, []);
 
+  // ---- account (sync) -----------------------------------------------------
+
+  // Connect this device's existing vault to a NEW account. The passphrase is
+  // never sent — only the salt + verifier (which reveal nothing) so the same
+  // vault can be re-derived on another device. The account password is a
+  // separate secret that only authenticates the account.
+  const connectCreate = useCallback(async (email: string, password: string): Promise<boolean> => {
+    setSyncError(null);
+    const em = email.trim().toLowerCase();
+    const vault = await db.getVault();
+    if (!vault) { setSyncError("Set up your log on this device first."); return false; }
+    if (!vault.identityPrivate) { setSyncError("This vault predates sync. Re-create it to connect an account."); return false; }
+    setSyncing(true);
+    try {
+      const { token } = await api.register(
+        em, password,
+        { salt: vault.salt, verifier: vault.verifier, iterations: vault.iterations },
+        vault.identityPublic ?? "", vault.identityPrivate
+      );
+      tokenRef.current = token;
+      setAccount(em);
+      const st = await db.getSyncState();
+      await db.saveSyncState({ id: "state", cursor: st?.cursor ?? 0, token, accountEmail: em });
+      await db.markAllDirty();
+      await runSync();
+      return true;
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : "Couldn't create that account.");
+      return false;
+    } finally {
+      setSyncing(false);
+    }
+  }, [runSync]);
+
+  // Sign in to an existing account from a second device. Downloads the vault
+  // metadata (salt + verifier) so the passphrase can re-derive the same key
+  // here. On a fresh device this installs the vault and drops to the lock
+  // screen; unlocking then pulls the ciphertext down.
+  const connectSignIn = useCallback(async (email: string, password: string): Promise<boolean> => {
+    setSyncError(null);
+    const em = email.trim().toLowerCase();
+    setSyncing(true);
+    try {
+      const { token } = await api.login(em, password);
+      const dto = await api.fetchVault(token);
+      tokenRef.current = token;
+      setAccount(em);
+      const local = await db.getVault();
+      if (!local) {
+        await db.saveVault({
+          id: "vault", salt: dto.salt, verifier: dto.verifier, createdAt: Date.now(),
+          iterations: dto.iterations ?? PBKDF2_ITERATIONS,
+          identityPrivate: dto.identityPrivWrapped ?? undefined,
+        });
+        setStatus("locked");
+      }
+      await db.saveSyncState({ id: "state", cursor: 0, token, accountEmail: em });
+      if (keyRef.current) await runSync();
+      return true;
+    } catch (e) {
+      tokenRef.current = null;
+      setAccount(null);
+      setSyncError(e instanceof Error ? e.message : "Couldn't sign in.");
+      return false;
+    } finally {
+      setSyncing(false);
+    }
+  }, [runSync]);
+
+  // Stop syncing from this device. Local data and the vault stay put; only the
+  // token and cursor are dropped, so no more ciphertext moves either way.
+  const disconnect = useCallback(async () => {
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    tokenRef.current = null;
+    setAccount(null);
+    setSyncError(null);
+    const st = await db.getSyncState();
+    await db.saveSyncState({ id: "state", cursor: st?.cursor ?? 0 });
+  }, []);
+
   // ---- writes: encrypt -> update memory -> persist -----------------------
 
   const logFood = useCallback(async (food: Food, amountGrams: number, at?: number, note?: string) => {
@@ -215,13 +348,15 @@ export function useHearth(): Hearth {
       id, at: when, createdAt: Date.now(), updatedAt: Date.now(),
       deleted: false, dirty: true, content: await sealJSON(key, content),
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const removeLog = useCallback(async (id: string) => {
     setLogs((prev) => prev.filter((l) => l.id !== id));
     const stored = await db.getFoodLog(id);
     if (stored) await db.putFoodLog({ ...stored, deleted: true, dirty: true, updatedAt: Date.now() });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const addGoal = useCallback(async (content: GoalContent) => {
     const key = keyRef.current;
@@ -232,13 +367,15 @@ export function useHearth(): Hearth {
       id, createdAt: Date.now(), updatedAt: Date.now(),
       deleted: false, dirty: true, content: await sealJSON(key, content),
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const removeGoal = useCallback(async (id: string) => {
     setGoals((prev) => prev.filter((g) => g.id !== id));
     const stored = (await db.allGoals()).find((g) => g.id === id);
     if (stored) await db.putGoal({ ...stored, deleted: true, dirty: true, updatedAt: Date.now() });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   // ---- recipes -----------------------------------------------------------
 
@@ -251,13 +388,15 @@ export function useHearth(): Hearth {
       id, createdAt: Date.now(), updatedAt: Date.now(),
       deleted: false, dirty: true, content: await sealJSON(key, content),
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const removeRecipe = useCallback(async (id: string) => {
     setRecipes((prev) => prev.filter((r) => r.id !== id));
     const stored = (await db.allRecipes()).find((r) => r.id === id);
     if (stored) await db.putRecipe({ ...stored, deleted: true, dirty: true, updatedAt: Date.now() });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   // Cooking a recipe = logging one serving, through the ordinary food-log path
   // (recipeAsFood normalises it, so the serving's nutrients reproduce exactly).
@@ -278,13 +417,15 @@ export function useHearth(): Hearth {
       id, at: when, createdAt: Date.now(), updatedAt: Date.now(),
       deleted: false, dirty: true, content: await sealJSON(key, content),
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const removeMetric = useCallback(async (id: string) => {
     setMetrics((prev) => prev.filter((m) => m.id !== id));
     const stored = (await db.allMetrics()).find((m) => m.id === id);
     if (stored) await db.putMetric({ ...stored, deleted: true, dirty: true, updatedAt: Date.now() });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   // ---- derived -----------------------------------------------------------
   const { from, to } = dayBounds(Date.now());
@@ -294,6 +435,7 @@ export function useHearth(): Hearth {
   return {
     status, error, busy, logs, goals, recipes, metrics, today, progressFor,
     canBiometric, hasBiometric,
+    account, syncing, syncError, connectCreate, connectSignIn, disconnect, syncNow: runSync,
     setup, unlock, unlockWithBiometric, enableBiometric, lock,
     logFood, removeLog, addGoal, removeGoal,
     addRecipe, removeRecipe, logRecipeServing,

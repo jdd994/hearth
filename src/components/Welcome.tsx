@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 
-export function Welcome({ onSetup, busy }: { onSetup: (p: string) => Promise<void>; busy: boolean }) {
+export function Welcome({ onSetup, busy, onSignIn }: { onSetup: (p: string) => Promise<void>; busy: boolean; onSignIn?: () => void }) {
   const [step, setStep] = useState<"intro" | "pass">("intro");
   const [pass, setPass] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -48,6 +48,15 @@ export function Welcome({ onSetup, busy }: { onSetup: (p: string) => Promise<voi
           <button className="btn btn-primary" style={{ width: "100%", marginTop: 12 }} onClick={() => setStep("pass")}>
             Set a passphrase
           </button>
+
+          {onSignIn ? (
+            <p className="gate-alt">
+              Already set up on another device?{" "}
+              <button type="button" className="linklike" onClick={onSignIn}>
+                Sign in to sync
+              </button>
+            </p>
+          ) : null}
         </div>
       </div>
     );
