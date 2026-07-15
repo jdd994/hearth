@@ -12,6 +12,9 @@ export type VaultMetaDTO = {
   verifier: CipherBlob;
   iterations?: number;
   identityPrivWrapped?: WrappedKey | null;
+  // Envelope encryption: the DEK wrapped by the passphrase-derived KEK. Opaque —
+  // stored/returned by the server, never read. Absent for legacy vaults.
+  wrappedDEK?: CipherBlob | null;
 };
 
 // A record on the wire: opaque content + optional non-secret `meta` (a food
@@ -65,6 +68,15 @@ export function fetchVault(token: string): Promise<VaultMetaDTO> {
 // data on the device is untouched. Irreversible.
 export function deleteAccount(token: string): Promise<{ ok: boolean }> {
   return req("/me", { method: "DELETE", token });
+}
+
+// Update the vault after a passphrase change: new salt, verifier, re-wrapped DEK.
+// Envelope-only — object ciphertext is untouched (the DEK didn't change).
+export function updateVault(
+  token: string,
+  vault: { salt: number[]; verifier: CipherBlob; iterations?: number; wrappedDEK: CipherBlob }
+): Promise<{ ok: boolean }> {
+  return req("/vault", { method: "PUT", token, body: vault });
 }
 
 export function pushChanges(token: string, changes: SyncRecord[]): Promise<{ applied: number; cursor: number }> {

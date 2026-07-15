@@ -224,6 +224,20 @@ export async function unwrapPrivateKey(vaultKey: CryptoKey, w: WrappedKey): Prom
 // key, so this never produces a false positive.
 const VERIFIER_TEXT = "hearth-ok";
 
+// ---- Envelope encryption (change-passphrase without re-encrypting data) ---
+// A random DEK encrypts all data; the passphrase-derived KEK only WRAPS the DEK.
+// Changing the passphrase re-wraps the DEK — the DEK (and every ciphertext, and
+// each device's ability to read it) never changes. See useHearth.changePassphrase.
+export function generateDEK(): Promise<CryptoKey> {
+  return crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+}
+export async function wrapVaultKey(kek: CryptoKey, dek: CryptoKey): Promise<CipherBlob> {
+  return encryptString(kek, JSON.stringify(await exportKeyRaw(dek)));
+}
+export async function unwrapVaultKey(kek: CryptoKey, blob: CipherBlob): Promise<CryptoKey> {
+  return importKeyRaw(JSON.parse(await decryptString(kek, blob)) as number[]);
+}
+
 export async function makeVerifier(key: CryptoKey): Promise<CipherBlob> {
   return encryptString(key, VERIFIER_TEXT);
 }

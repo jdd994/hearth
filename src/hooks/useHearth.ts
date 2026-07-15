@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  checkVerifier, deriveKeyFromSalt, exportKeyRaw, generateIdentityKeypair,
+  checkVerifier, deriveKeyFromSalt, exportKeyRaw, generateDEK, wrapVaultKey, unwrapVaultKey, generateIdentityKeypair,
   importKeyRaw, makeVerifier, newSalt, openJSON, sealJSON, exportPublicKeyB64,
   wrapPrivateKey, PBKDF2_ITERATIONS,
 } from "../lib/crypto";
@@ -50,6 +50,7 @@ export type Hearth = {
   connectSignIn: (email: string, password: string) => Promise<boolean>;
   disconnect: () => Promise<void>;
   deleteAccount: () => Promise<boolean>;
+  changePassphrase: (current: string, next: string) => Promise<string | null>;
   syncNow: () => Promise<void>;
 
   setup: (passphrase: string) => Promise<void>;
@@ -172,16 +173,21 @@ export function useHearth(): Hearth {
     setBusy(true);
     setError(null);
     try {
+      // Envelope model: a random DEK encrypts the data; the passphrase-derived
+      // KEK only wraps it, so the passphrase can change later without
+      // re-encrypting anything. The verifier validates the DEK.
       const salt = newSalt();
-      const key = await deriveKeyFromSalt(passphrase, salt, PBKDF2_ITERATIONS);
+      const kek = await deriveKeyFromSalt(passphrase, salt, PBKDF2_ITERATIONS);
+      const dek = await generateDEK();
       const kp = await generateIdentityKeypair();
       await db.saveVault({
-        id: "vault", salt, verifier: await makeVerifier(key), createdAt: Date.now(),
+        id: "vault", salt, verifier: await makeVerifier(dek),
+        wrappedDEK: await wrapVaultKey(kek, dek), createdAt: Date.now(),
         iterations: PBKDF2_ITERATIONS,
         identityPublic: await exportPublicKeyB64(kp.publicKey),
-        identityPrivate: await wrapPrivateKey(key, kp.privateKey),
+        identityPrivate: await wrapPrivateKey(dek, kp.privateKey),
       });
-      keyRef.current = key;
+      keyRef.current = dek;
       setStatus("unlocked");
     } finally {
       setBusy(false);
@@ -201,12 +207,33 @@ export function useHearth(): Hearth {
     try {
       const vault = await db.getVault();
       if (!vault) return false;
-      const key = await deriveKeyFromSalt(passphrase, vault.salt, vault.iterations);
-      if (!(await checkVerifier(key, vault.verifier))) {
-        setError("That passphrase doesn't open this vault.");
-        return false;
+      const kek = await deriveKeyFromSalt(passphrase, vault.salt, vault.iterations);
+
+      let dek: CryptoKey;
+      if (vault.wrappedDEK) {
+        // Envelope vault: the KEK unwraps the DEK; a wrong passphrase fails here.
+        try {
+          dek = await unwrapVaultKey(kek, vault.wrappedDEK);
+        } catch {
+          setError("That passphrase doesn't open this vault.");
+          return false;
+        }
+        if (!(await checkVerifier(dek, vault.verifier))) {
+          setError("That passphrase doesn't open this vault.");
+          return false;
+        }
+      } else {
+        // Legacy vault: the derived key IS the data key. Verify, then migrate to
+        // the envelope model in place — no data is re-encrypted.
+        if (!(await checkVerifier(kek, vault.verifier))) {
+          setError("That passphrase doesn't open this vault.");
+          return false;
+        }
+        dek = kek;
+        await db.saveVault({ ...vault, wrappedDEK: await wrapVaultKey(kek, dek) });
       }
-      await finishUnlock(key);
+
+      await finishUnlock(dek);
       return true;
     } finally {
       setBusy(false);
@@ -266,7 +293,7 @@ export function useHearth(): Hearth {
     try {
       const { token } = await api.register(
         em, password,
-        { salt: vault.salt, verifier: vault.verifier, iterations: vault.iterations },
+        { salt: vault.salt, verifier: vault.verifier, iterations: vault.iterations, wrappedDEK: vault.wrappedDEK },
         vault.identityPublic ?? "", vault.identityPrivate
       );
       tokenRef.current = token;
@@ -302,6 +329,7 @@ export function useHearth(): Hearth {
         await db.saveVault({
           id: "vault", salt: dto.salt, verifier: dto.verifier, createdAt: Date.now(),
           iterations: dto.iterations ?? PBKDF2_ITERATIONS,
+          wrappedDEK: dto.wrappedDEK ?? undefined,
           identityPrivate: dto.identityPrivWrapped ?? undefined,
         });
         setStatus("locked");
@@ -348,6 +376,59 @@ export function useHearth(): Hearth {
       setSyncing(false);
     }
   }, [disconnect]);
+
+  // Change the passphrase (must be unlocked). Envelope encryption makes this
+  // instant and re-encrypts NOTHING — it only re-wraps the DEK under a key from
+  // the new passphrase. Other devices keep reading their data with the unchanged
+  // DEK, and biometric quick-unlock still works. Returns an error, or null.
+  const changePassphrase = useCallback(async (current: string, next: string): Promise<string | null> => {
+    const dek = keyRef.current;
+    if (!dek) return "Unlock the log first.";
+    if (next.length < 8) return "Use at least 8 characters for the new passphrase.";
+    const vault = await db.getVault();
+    if (!vault) return "No vault on this device.";
+
+    const curKek = await deriveKeyFromSalt(current, vault.salt, vault.iterations);
+    let okCurrent = false;
+    try {
+      if (vault.wrappedDEK) {
+        const a = await exportKeyRaw(await unwrapVaultKey(curKek, vault.wrappedDEK));
+        const b = await exportKeyRaw(dek);
+        okCurrent = a.length === b.length && a.every((x, i) => x === b[i]);
+      } else {
+        okCurrent = await checkVerifier(curKek, vault.verifier);
+      }
+    } catch {
+      okCurrent = false;
+    }
+    if (!okCurrent) return "That current passphrase isn't right.";
+
+    const salt = newSalt();
+    const kek = await deriveKeyFromSalt(next, salt, PBKDF2_ITERATIONS);
+    const updated = {
+      ...vault,
+      salt,
+      iterations: PBKDF2_ITERATIONS,
+      verifier: await makeVerifier(dek),
+      wrappedDEK: await wrapVaultKey(kek, dek),
+    };
+    await db.saveVault(updated);
+
+    const token = tokenRef.current;
+    if (token) {
+      try {
+        await api.updateVault(token, {
+          salt: updated.salt, verifier: updated.verifier,
+          iterations: updated.iterations, wrappedDEK: updated.wrappedDEK,
+        });
+      } catch (e) {
+        return e instanceof Error
+          ? `Changed on this device, but the server didn't update: ${e.message}`
+          : "Changed on this device, but the server couldn't be reached.";
+      }
+    }
+    return null;
+  }, []);
 
   // ---- writes: encrypt -> update memory -> persist -----------------------
 
@@ -455,7 +536,7 @@ export function useHearth(): Hearth {
   return {
     status, error, busy, logs, goals, recipes, metrics, today, progressFor,
     canBiometric, hasBiometric,
-    account, syncing, syncError, connectCreate, connectSignIn, disconnect, deleteAccount, syncNow: runSync,
+    account, syncing, syncError, connectCreate, connectSignIn, disconnect, deleteAccount, changePassphrase, syncNow: runSync,
     setup, unlock, unlockWithBiometric, enableBiometric, lock,
     logFood, removeLog, addGoal, removeGoal,
     addRecipe, removeRecipe, logRecipeServing,

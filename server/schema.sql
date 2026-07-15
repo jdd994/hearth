@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS vaults (
   verifier    TEXT NOT NULL,          -- JSON CipherBlob — checks the passphrase
   iterations  INTEGER NOT NULL,
   identity_priv_wrapped TEXT,         -- identity private key, wrapped by the vault key (opaque)
-  currency    TEXT,                   -- base display currency (plaintext, non-secret) so a new device labels money right
+  currency    TEXT,                   -- base display currency (unused by Hearth; kept for a shared server shape)
+  wrapped_dek TEXT,                   -- envelope: the data key (DEK) wrapped by the passphrase-derived KEK (opaque)
   created_at  INTEGER NOT NULL
 );
 
