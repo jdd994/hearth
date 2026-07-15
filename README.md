@@ -1,3 +1,9 @@
+> ## 📦 Moved to the `lantern` monorepo
+>
+> Development now happens in **[jdd994/lantern](https://github.com/jdd994/lantern)** — a monorepo where Driftless, Ballast, and Hearth share one local-first, end-to-end-encrypted core. This repository is a **read-only archive** of the pre-monorepo history.
+
+---
+
 # Hearth
 
 **Tend and nourish yourself, gently.**
