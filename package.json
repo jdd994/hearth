@@ -1,0 +1,30 @@
+{
+  "name": "hearth",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Tend and nourish yourself, gently. Local-first, end-to-end encrypted nutrition & wellbeing.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "deploy": "npm run build && npx wrangler pages deploy dist --project-name hearth --branch=production"
+  },
+  "dependencies": {
+    "idb": "^8.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.0",
+    "vite-plugin-pwa": "^0.20.1",
+    "vitest": "^2.1.0"
+  }
+}
