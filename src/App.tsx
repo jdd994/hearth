@@ -5,6 +5,7 @@ import { LockScreen } from "./components/LockScreen";
 import { Today } from "./components/Today";
 import { LogFood } from "./components/LogFood";
 import { Goals, AddGoal } from "./components/Goals";
+import { Recipes, AddRecipe } from "./components/Recipes";
 import { loggedNutrients, type FoodLog } from "./lib/nutrition";
 
 function timeLabel(at: number): string {
@@ -15,6 +16,7 @@ export default function App() {
   const h = useHearth();
   const [logging, setLogging] = useState(false);
   const [addingGoal, setAddingGoal] = useState(false);
+  const [addingRecipe, setAddingRecipe] = useState(false);
 
   if (h.status === "loading") return null;
   if (h.status === "setup") return <Welcome onSetup={h.setup} busy={h.busy} />;
@@ -60,6 +62,19 @@ export default function App() {
 
       <section className="section">
         <div className="section-head">
+          <h2 className="section-title">Recipes</h2>
+          <button className="btn btn-sm" onClick={() => setAddingRecipe(true)}>Add</button>
+        </div>
+        <Recipes
+          recipes={h.recipes}
+          busy={h.busy}
+          onCook={(r) => void h.logRecipeServing(r)}
+          onRemove={(id) => void h.removeRecipe(id)}
+        />
+      </section>
+
+      <section className="section">
+        <div className="section-head">
           <h2 className="section-title">Eaten today</h2>
           <button className="btn btn-sm btn-primary" onClick={() => setLogging(true)}>Log food</button>
         </div>
@@ -95,6 +110,7 @@ export default function App() {
         />
       ) : null}
       {addingGoal ? <AddGoal onAdd={h.addGoal} onClose={() => setAddingGoal(false)} /> : null}
+      {addingRecipe ? <AddRecipe onAdd={h.addRecipe} onClose={() => setAddingRecipe(false)} /> : null}
     </div>
   );
 }

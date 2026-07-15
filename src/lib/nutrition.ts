@@ -123,6 +123,63 @@ export function dayBounds(now: number): { from: number; to: number } {
   return { from, to: from + 24 * 60 * 60 * 1000 };
 }
 
+// ---- Recipes -----------------------------------------------------------
+// A recipe is a named list of ingredients (each a food + an amount) split into
+// servings. It's the same structured data the tracker already consumes — which
+// is the whole reason recipes belong in this app: cooking a saved recipe becomes
+// a one-tap log of a serving, no re-entering anything.
+//
+// Each ingredient snapshots its per-100g nutrients (like a food log), so editing
+// the food database later never silently rewrites a saved recipe.
+
+export type RecipeIngredient = { foodId: string; name: string; grams: number; per100g: Nutrients };
+
+export type RecipeContent = {
+  name: string;
+  ingredients: RecipeIngredient[];
+  servings: number; // how many servings the whole recipe makes (>= 1)
+};
+
+export type Recipe = RecipeContent & { id: string };
+
+export function recipeTotalGrams(r: RecipeContent): number {
+  return r.ingredients.reduce((g, i) => g + i.grams, 0);
+}
+
+export function recipeTotalNutrients(r: RecipeContent): Nutrients {
+  return sum(r.ingredients.map((i) => scale(i.per100g, i.grams)));
+}
+
+export function recipeServingGrams(r: RecipeContent): number {
+  const servings = Math.max(1, r.servings);
+  return recipeTotalGrams(r) / servings;
+}
+
+export function recipePerServing(r: RecipeContent): Nutrients {
+  const servings = Math.max(1, r.servings);
+  const total = recipeTotalNutrients(r);
+  const out = { ...ZERO };
+  for (const k of NUTRIENT_KEYS) out[k] = total[k] / servings;
+  return out;
+}
+
+// Normalize the whole recipe to a per-100g vector, so a serving can be logged
+// through the ordinary food-log path (loggedNutrients then reproduces the
+// per-serving values exactly). Guards an empty recipe.
+export function recipeAsFood(r: Recipe): Food {
+  const grams = recipeTotalGrams(r);
+  const total = recipeTotalNutrients(r);
+  const per100g = { ...ZERO };
+  if (grams > 0) for (const k of NUTRIENT_KEYS) per100g[k] = (total[k] / grams) * 100;
+  return {
+    id: r.id,
+    name: r.name,
+    source: "custom",
+    portions: [{ label: "1 serving", grams: recipeServingGrams(r) }],
+    per100g,
+  };
+}
+
 // ---- Goals -------------------------------------------------------------
 // YOUR targets, never a norm imposed on you. A goal is a nutrient, a number, and
 // a direction. Progress is reported calmly — "you're at 60 of your 100g protein"

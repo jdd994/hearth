@@ -13,9 +13,9 @@ import {
 import * as db from "../lib/db";
 import { biometricSupported, enrollBiometric, unlockBiometric } from "../lib/biometric";
 import {
-  dayBounds, windowTotal, goalProgress,
+  dayBounds, windowTotal, goalProgress, recipeAsFood,
   type Food, type FoodLog, type FoodLogContent, type Goal, type GoalContent,
-  type GoalProgress, type Nutrients,
+  type GoalProgress, type Nutrients, type Recipe, type RecipeContent,
 } from "../lib/nutrition";
 
 export type Status = "loading" | "setup" | "locked" | "unlocked";
@@ -27,6 +27,7 @@ export type Hearth = {
 
   logs: FoodLog[];
   goals: Goal[];
+  recipes: Recipe[];
 
   today: Nutrients; // derived: today's running total
   progressFor: (g: Goal) => GoalProgress;
@@ -44,6 +45,10 @@ export type Hearth = {
   removeLog: (id: string) => Promise<void>;
   addGoal: (content: GoalContent) => Promise<void>;
   removeGoal: (id: string) => Promise<void>;
+
+  addRecipe: (content: RecipeContent) => Promise<void>;
+  removeRecipe: (id: string) => Promise<void>;
+  logRecipeServing: (recipe: Recipe) => Promise<void>;
 };
 
 const uid = () => crypto.randomUUID();
@@ -55,6 +60,7 @@ export function useHearth(): Hearth {
   const [busy, setBusy] = useState(false);
   const [logs, setLogs] = useState<FoodLog[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [canBiometric, setCanBiometric] = useState(false);
   const [hasBiometric, setHasBiometric] = useState(false);
 
@@ -70,7 +76,7 @@ export function useHearth(): Hearth {
   }, []);
 
   const loadAll = useCallback(async (key: CryptoKey) => {
-    const [sl, sg] = await Promise.all([db.allFoodLogs(), db.allGoals()]);
+    const [sl, sg, sr] = await Promise.all([db.allFoodLogs(), db.allGoals(), db.allRecipes()]);
     const l = await Promise.all(
       sl.filter((r) => !r.deleted).map(async (r): Promise<FoodLog> => {
         const c = await openJSON<FoodLogContent>(key, r.content);
@@ -83,8 +89,15 @@ export function useHearth(): Hearth {
         return { ...c, id: r.id };
       })
     );
+    const rc = await Promise.all(
+      sr.filter((r) => !r.deleted).map(async (r): Promise<Recipe> => {
+        const c = await openJSON<RecipeContent>(key, r.content);
+        return { ...c, id: r.id };
+      })
+    );
     setLogs(l);
     setGoals(g);
+    setRecipes(rc);
   }, []);
 
   const setup = useCallback(async (passphrase: string) => {
@@ -162,6 +175,7 @@ export function useHearth(): Hearth {
     keyRef.current = null;
     setLogs([]);
     setGoals([]);
+    setRecipes([]);
     setError(null);
     setStatus("locked");
   }, []);
@@ -210,15 +224,42 @@ export function useHearth(): Hearth {
     if (stored) await db.putGoal({ ...stored, deleted: true, dirty: true, updatedAt: Date.now() });
   }, []);
 
+  // ---- recipes -----------------------------------------------------------
+
+  const addRecipe = useCallback(async (content: RecipeContent) => {
+    const key = keyRef.current;
+    if (!key) return;
+    const id = uid();
+    setRecipes((prev) => [...prev, { ...content, id }]);
+    await db.putRecipe({
+      id, createdAt: Date.now(), updatedAt: Date.now(),
+      deleted: false, dirty: true, content: await sealJSON(key, content),
+    });
+  }, []);
+
+  const removeRecipe = useCallback(async (id: string) => {
+    setRecipes((prev) => prev.filter((r) => r.id !== id));
+    const stored = (await db.allRecipes()).find((r) => r.id === id);
+    if (stored) await db.putRecipe({ ...stored, deleted: true, dirty: true, updatedAt: Date.now() });
+  }, []);
+
+  // Cooking a recipe = logging one serving, through the ordinary food-log path
+  // (recipeAsFood normalises it, so the serving's nutrients reproduce exactly).
+  const logRecipeServing = useCallback(async (recipe: Recipe) => {
+    const food = recipeAsFood(recipe);
+    await logFood(food, food.portions[0].grams);
+  }, [logFood]);
+
   // ---- derived -----------------------------------------------------------
   const { from, to } = dayBounds(Date.now());
   const today = windowTotal(logs, from, to);
   const progressFor = useCallback((g: Goal) => goalProgress(g, today), [today]);
 
   return {
-    status, error, busy, logs, goals, today, progressFor,
+    status, error, busy, logs, goals, recipes, today, progressFor,
     canBiometric, hasBiometric,
     setup, unlock, unlockWithBiometric, enableBiometric, lock,
     logFood, removeLog, addGoal, removeGoal,
+    addRecipe, removeRecipe, logRecipeServing,
   };
 }

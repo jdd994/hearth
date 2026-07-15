@@ -64,6 +64,45 @@ describe("windowTotal / dayBounds", () => {
   });
 });
 
+describe("recipes", () => {
+  const oats = n({ kcal: 389, protein: 16.9 });
+  const milk = n({ kcal: 50, protein: 3.3 });
+  const recipe = {
+    name: "Porridge",
+    servings: 2,
+    ingredients: [
+      { foodId: "seed:oats", name: "Oats", grams: 100, per100g: oats }, // 389 kcal, 16.9 protein
+      { foodId: "seed:milk-2", name: "Milk", grams: 200, per100g: milk }, // 100 kcal, 6.6 protein
+    ],
+  };
+
+  it("totals ingredients and splits per serving", async () => {
+    const { recipeTotalGrams, recipeTotalNutrients, recipePerServing, recipeServingGrams } = await import("./nutrition");
+    expect(recipeTotalGrams(recipe)).toBe(300);
+    expect(recipeTotalNutrients(recipe).kcal).toBeCloseTo(489, 3); // 389 + 100
+    expect(recipeTotalNutrients(recipe).protein).toBeCloseTo(23.5, 3); // 16.9 + 6.6
+    expect(recipePerServing(recipe).kcal).toBeCloseTo(244.5, 3); // /2
+    expect(recipeServingGrams(recipe)).toBe(150); // 300/2
+  });
+
+  it("logging a serving via recipeAsFood reproduces per-serving nutrients exactly", async () => {
+    const { recipeAsFood, scale, recipePerServing } = await import("./nutrition");
+    const food = recipeAsFood({ ...recipe, id: "r1" });
+    const servingGrams = food.portions[0].grams; // 150
+    const logged = scale(food.per100g, servingGrams);
+    // round-trips to the per-serving values
+    expect(logged.kcal).toBeCloseTo(recipePerServing(recipe).kcal, 3);
+    expect(logged.protein).toBeCloseTo(recipePerServing(recipe).protein, 3);
+  });
+
+  it("an empty recipe doesn't divide by zero", async () => {
+    const { recipeAsFood } = await import("./nutrition");
+    const f = recipeAsFood({ id: "e", name: "Empty", servings: 1, ingredients: [] });
+    expect(Number.isFinite(f.per100g.kcal)).toBe(true);
+    expect(f.per100g.kcal).toBe(0);
+  });
+});
+
 describe("goalProgress — calm, never pass/fail", () => {
   const today = n({ protein: 60, sugars: 40, kcal: 1800 });
 
