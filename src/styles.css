@@ -201,3 +201,8 @@ input::placeholder { color: var(--ink-faint); }
 .gate-alt { margin-top: 16px; text-align: center; font-size: 13px; color: var(--ink-faint); }
 .linklike { border: none; background: none; padding: 0; font: inherit; color: var(--ember); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .linklike:hover { color: var(--ink); }
+
+/* Deleting a synced account — understated, below the everyday controls, gated by a confirm. */
+.danger-zone { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.linklike.danger { color: var(--clay); font-size: 12.5px; text-decoration: none; }
+.linklike.danger:hover { color: var(--ink); text-decoration: underline; }

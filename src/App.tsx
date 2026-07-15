@@ -36,6 +36,7 @@ export default function App() {
             onCreate={h.connectCreate}
             onSignIn={h.connectSignIn}
             onDisconnect={h.disconnect}
+            onDelete={h.deleteAccount}
             onSyncNow={h.syncNow}
             onClose={() => setSync(false)}
           />
@@ -153,7 +154,8 @@ export default function App() {
           onCreate={h.connectCreate}
           onSignIn={h.connectSignIn}
           onDisconnect={h.disconnect}
-          onSyncNow={h.syncNow}
+          onDelete={h.deleteAccount}
+            onSyncNow={h.syncNow}
           onClose={() => setSync(false)}
         />
       ) : null}

@@ -24,6 +24,7 @@ export function Sync({
   onCreate,
   onSignIn,
   onDisconnect,
+  onDelete,
   onSyncNow,
   onClose,
 }: {
@@ -35,6 +36,7 @@ export function Sync({
   onCreate: (email: string, password: string) => Promise<boolean>;
   onSignIn: (email: string, password: string) => Promise<boolean>;
   onDisconnect: () => Promise<void>;
+  onDelete: () => Promise<boolean>;
   onSyncNow: () => Promise<void>;
   onClose: () => void;
 }) {
@@ -42,6 +44,7 @@ export function Sync({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -85,6 +88,35 @@ export function Sync({
               <button className="btn btn-primary" onClick={() => void onSyncNow()} disabled={syncing}>
                 {syncing ? "Syncing…" : "Sync now"}
               </button>
+            </div>
+
+            {/* Deleting the account removes the server copy only — the log on this
+                device is untouched. Two taps, so it can't happen by accident. */}
+            <div className="danger-zone">
+              {confirmDelete ? (
+                <>
+                  <p className="hint">
+                    This permanently removes your synced copy from the server. Everything on
+                    <strong> this device</strong> stays exactly as it is. It can't be undone.
+                  </p>
+                  <div className="sheet-actions">
+                    <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>
+                      Keep it
+                    </button>
+                    <button
+                      className="btn btn-danger"
+                      disabled={syncing}
+                      onClick={async () => { if (await onDelete()) onClose(); }}
+                    >
+                      {syncing ? "Deleting…" : "Delete from server"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button className="linklike danger" onClick={() => setConfirmDelete(true)}>
+                  Delete this account from the server
+                </button>
+              )}
             </div>
           </>
         ) : (

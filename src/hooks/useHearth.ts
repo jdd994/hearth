@@ -49,6 +49,7 @@ export type Hearth = {
   connectCreate: (email: string, password: string) => Promise<boolean>;
   connectSignIn: (email: string, password: string) => Promise<boolean>;
   disconnect: () => Promise<void>;
+  deleteAccount: () => Promise<boolean>;
   syncNow: () => Promise<void>;
 
   setup: (passphrase: string) => Promise<void>;
@@ -329,6 +330,25 @@ export function useHearth(): Hearth {
     await db.saveSyncState({ id: "state", cursor: st?.cursor ?? 0 });
   }, []);
 
+  // Permanently delete the account and every blob on the server, then disconnect.
+  // Local data stays on this device — only the cloud copy is removed.
+  const deleteAccount = useCallback(async (): Promise<boolean> => {
+    const token = tokenRef.current;
+    if (!token) return false;
+    setSyncError(null);
+    setSyncing(true);
+    try {
+      await api.deleteAccount(token);
+      await disconnect();
+      return true;
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : "Couldn't delete the account.");
+      return false;
+    } finally {
+      setSyncing(false);
+    }
+  }, [disconnect]);
+
   // ---- writes: encrypt -> update memory -> persist -----------------------
 
   const logFood = useCallback(async (food: Food, amountGrams: number, at?: number, note?: string) => {
@@ -435,7 +455,7 @@ export function useHearth(): Hearth {
   return {
     status, error, busy, logs, goals, recipes, metrics, today, progressFor,
     canBiometric, hasBiometric,
-    account, syncing, syncError, connectCreate, connectSignIn, disconnect, syncNow: runSync,
+    account, syncing, syncError, connectCreate, connectSignIn, disconnect, deleteAccount, syncNow: runSync,
     setup, unlock, unlockWithBiometric, enableBiometric, lock,
     logFood, removeLog, addGoal, removeGoal,
     addRecipe, removeRecipe, logRecipeServing,

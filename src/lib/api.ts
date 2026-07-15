@@ -61,6 +61,12 @@ export function fetchVault(token: string): Promise<VaultMetaDTO> {
   return req("/vault", { token });
 }
 
+// Permanently delete the account and every blob the server holds for it. Local
+// data on the device is untouched. Irreversible.
+export function deleteAccount(token: string): Promise<{ ok: boolean }> {
+  return req("/me", { method: "DELETE", token });
+}
+
 export function pushChanges(token: string, changes: SyncRecord[]): Promise<{ applied: number; cursor: number }> {
   return req("/sync/push", { method: "POST", token, body: { changes } });
 }

@@ -70,6 +70,21 @@ async function objectUsage(db: D1Database, userId: string): Promise<{ n: number;
 app.get("/health", (c) => c.json({ ok: true, service: "hearth-server" }));
 app.get("/me", requireAuth, (c) => c.json({ userId: c.get("userId") }));
 
+// Delete the account and everything the server holds for it. The passphrase was
+// never here, so this IS the whole server-side footprint: the encrypted objects,
+// the vault record, and the account row. Local data on the device is untouched —
+// this only clears the cloud copy. Irreversible, and the client confirms first.
+app.delete("/me", requireAuth, async (c) => {
+  const userId = c.get("userId");
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM objects WHERE user_id = ?").bind(userId),
+    c.env.DB.prepare("DELETE FROM vaults WHERE user_id = ?").bind(userId),
+    c.env.DB.prepare("DELETE FROM user_usage WHERE user_id = ?").bind(userId),
+    c.env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId),
+  ]);
+  return c.json({ ok: true });
+});
+
 // ---- accounts + vault ----------------------------------------------------
 
 app.post("/auth/register", async (c) => {
