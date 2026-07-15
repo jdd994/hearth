@@ -3,8 +3,8 @@
 // cooking one is a one-tap log of a serving — no re-entering what's in it. Built
 // on the same food search and nutrition math as everything else.
 
-import { useMemo, useState } from "react";
-import { searchFoods } from "../lib/fooddata";
+import { useEffect, useMemo, useState } from "react";
+import { searchFoods, foodDbReady } from "../lib/fooddata";
 import {
   recipePerServing, recipeServingGrams, type Food, type Recipe,
   type RecipeContent, type RecipeIngredient,
@@ -64,8 +64,10 @@ export function AddRecipe({
   const [pending, setPending] = useState<Food | null>(null);
   const [grams, setGrams] = useState(100);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => { void foodDbReady.then(() => setReady(true)); }, []);
 
-  const results = useMemo(() => searchFoods(query), [query]);
+  const results = useMemo(() => searchFoods(query), [query, ready]);
   const perServing = useMemo(
     () => recipePerServing({ name, servings, ingredients }),
     [name, servings, ingredients]
@@ -128,7 +130,7 @@ export function AddRecipe({
               {query ? (
                 <div className="results" style={{ marginTop: 6 }}>
                   {results.length === 0 ? (
-                    <p className="hint" style={{ padding: "8px 2px" }}>Not in the starter set yet — try a simpler name.</p>
+                    <p className="hint" style={{ padding: "8px 2px" }}>No matches — try a simpler name.</p>
                   ) : (
                     results.slice(0, 8).map((f) => (
                       <button type="button" key={f.id} className="result" onClick={() => { setPending(f); setGrams(f.portions[0]?.grams ?? 100); }}>

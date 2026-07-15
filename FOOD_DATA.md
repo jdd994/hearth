@@ -14,6 +14,15 @@ food** — calories, macros, and key micros per unit weight. Two shapes of food:
 - **Packaged/branded products** (a specific cereal box) — a huge, changing
   long-tail best resolved by **barcode**, on demand.
 
+## Status
+
+**Tier 0 (USDA) is DONE (2026-07-14).** `scripts/build-food-db.py` turns the SR
+Legacy CSV into `public/foods.json` — ~7,800 whole foods, 914 KB (251 KB
+gzipped), precached so search is fully offline. The small hand seed stays for its
+friendly portions and is searched first. Tier 1 (barcodes) and tier 2 (photo
+recognition) are still ahead. Known nicety for later: search has no stemming, so
+"sardines" misses "Fish, sardine, …" — search the singular for now.
+
 ## Tier 0 — bundle USDA FoodData Central (whole foods)
 
 [FoodData Central](https://fdc.nal.usda.gov/) is US-government data, **public

@@ -3,8 +3,8 @@
 // Fully local — the provider-learns-nothing rung. The camera/recognize seam is
 // noted for later; today it's search-first.
 
-import { useMemo, useState } from "react";
-import { searchFoods } from "../lib/fooddata";
+import { useEffect, useMemo, useState } from "react";
+import { searchFoods, foodDbReady } from "../lib/fooddata";
 import { scale, type Food } from "../lib/nutrition";
 
 export function LogFood({
@@ -18,8 +18,10 @@ export function LogFood({
   const [picked, setPicked] = useState<Food | null>(null);
   const [grams, setGrams] = useState<number>(100);
   const [note, setNote] = useState("");
+  const [ready, setReady] = useState(false);
+  useEffect(() => { void foodDbReady.then(() => setReady(true)); }, []);
 
-  const results = useMemo(() => searchFoods(query), [query]);
+  const results = useMemo(() => searchFoods(query), [query, ready]);
 
   function pick(food: Food) {
     setPicked(food);
@@ -44,8 +46,8 @@ export function LogFood({
             <div className="results">
               {query && results.length === 0 ? (
                 <p className="hint" style={{ padding: "10px 2px" }}>
-                  Not in the starter set yet. More foods (the full USDA database) and barcode
-                  scanning are coming — for now, try a simpler name like "rice" or "egg".
+                  No matches — try a simpler or different name (e.g. "rice", "chicken breast").
+                  Barcode scanning for packaged foods is coming.
                 </p>
               ) : (
                 results.map((f) => (
