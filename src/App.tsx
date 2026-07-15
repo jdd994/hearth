@@ -6,6 +6,7 @@ import { Today } from "./components/Today";
 import { LogFood } from "./components/LogFood";
 import { Goals, AddGoal } from "./components/Goals";
 import { Recipes, AddRecipe } from "./components/Recipes";
+import { Body, LogMetric } from "./components/Body";
 import { loggedNutrients, type FoodLog } from "./lib/nutrition";
 
 function timeLabel(at: number): string {
@@ -17,6 +18,7 @@ export default function App() {
   const [logging, setLogging] = useState(false);
   const [addingGoal, setAddingGoal] = useState(false);
   const [addingRecipe, setAddingRecipe] = useState(false);
+  const [loggingMetric, setLoggingMetric] = useState(false);
 
   if (h.status === "loading") return null;
   if (h.status === "setup") return <Welcome onSetup={h.setup} busy={h.busy} />;
@@ -102,6 +104,8 @@ export default function App() {
         )}
       </section>
 
+      <Body metrics={h.metrics} onLog={() => setLoggingMetric(true)} onRemove={(id) => void h.removeMetric(id)} />
+
       {logging ? (
         <LogFood
           busy={h.busy}
@@ -111,6 +115,7 @@ export default function App() {
       ) : null}
       {addingGoal ? <AddGoal onAdd={h.addGoal} onClose={() => setAddingGoal(false)} /> : null}
       {addingRecipe ? <AddRecipe onAdd={h.addRecipe} onClose={() => setAddingRecipe(false)} /> : null}
+      {loggingMetric ? <LogMetric onLog={h.logMetric} onClose={() => setLoggingMetric(false)} /> : null}
     </div>
   );
 }

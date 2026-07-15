@@ -17,6 +17,7 @@ import {
   type Food, type FoodLog, type FoodLogContent, type Goal, type GoalContent,
   type GoalProgress, type Nutrients, type Recipe, type RecipeContent,
 } from "../lib/nutrition";
+import type { Metric, MetricContent } from "../lib/metrics";
 
 export type Status = "loading" | "setup" | "locked" | "unlocked";
 
@@ -28,6 +29,7 @@ export type Hearth = {
   logs: FoodLog[];
   goals: Goal[];
   recipes: Recipe[];
+  metrics: Metric[];
 
   today: Nutrients; // derived: today's running total
   progressFor: (g: Goal) => GoalProgress;
@@ -49,6 +51,9 @@ export type Hearth = {
   addRecipe: (content: RecipeContent) => Promise<void>;
   removeRecipe: (id: string) => Promise<void>;
   logRecipeServing: (recipe: Recipe) => Promise<void>;
+
+  logMetric: (content: MetricContent, at?: number) => Promise<void>;
+  removeMetric: (id: string) => Promise<void>;
 };
 
 const uid = () => crypto.randomUUID();
@@ -61,6 +66,7 @@ export function useHearth(): Hearth {
   const [logs, setLogs] = useState<FoodLog[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [metrics, setMetrics] = useState<Metric[]>([]);
   const [canBiometric, setCanBiometric] = useState(false);
   const [hasBiometric, setHasBiometric] = useState(false);
 
@@ -76,7 +82,9 @@ export function useHearth(): Hearth {
   }, []);
 
   const loadAll = useCallback(async (key: CryptoKey) => {
-    const [sl, sg, sr] = await Promise.all([db.allFoodLogs(), db.allGoals(), db.allRecipes()]);
+    const [sl, sg, sr, sm] = await Promise.all([
+      db.allFoodLogs(), db.allGoals(), db.allRecipes(), db.allMetrics(),
+    ]);
     const l = await Promise.all(
       sl.filter((r) => !r.deleted).map(async (r): Promise<FoodLog> => {
         const c = await openJSON<FoodLogContent>(key, r.content);
@@ -95,9 +103,16 @@ export function useHearth(): Hearth {
         return { ...c, id: r.id };
       })
     );
+    const m = await Promise.all(
+      sm.filter((r) => !r.deleted).map(async (r): Promise<Metric> => {
+        const c = await openJSON<MetricContent>(key, r.content);
+        return { ...c, id: r.id, at: r.at };
+      })
+    );
     setLogs(l);
     setGoals(g);
     setRecipes(rc);
+    setMetrics(m);
   }, []);
 
   const setup = useCallback(async (passphrase: string) => {
@@ -176,6 +191,7 @@ export function useHearth(): Hearth {
     setLogs([]);
     setGoals([]);
     setRecipes([]);
+    setMetrics([]);
     setError(null);
     setStatus("locked");
   }, []);
@@ -250,16 +266,37 @@ export function useHearth(): Hearth {
     await logFood(food, food.portions[0].grams);
   }, [logFood]);
 
+  // ---- body metrics ------------------------------------------------------
+
+  const logMetric = useCallback(async (content: MetricContent, at?: number) => {
+    const key = keyRef.current;
+    if (!key) return;
+    const when = at ?? Date.now();
+    const id = uid();
+    setMetrics((prev) => [...prev, { ...content, id, at: when }]);
+    await db.putMetric({
+      id, at: when, createdAt: Date.now(), updatedAt: Date.now(),
+      deleted: false, dirty: true, content: await sealJSON(key, content),
+    });
+  }, []);
+
+  const removeMetric = useCallback(async (id: string) => {
+    setMetrics((prev) => prev.filter((m) => m.id !== id));
+    const stored = (await db.allMetrics()).find((m) => m.id === id);
+    if (stored) await db.putMetric({ ...stored, deleted: true, dirty: true, updatedAt: Date.now() });
+  }, []);
+
   // ---- derived -----------------------------------------------------------
   const { from, to } = dayBounds(Date.now());
   const today = windowTotal(logs, from, to);
   const progressFor = useCallback((g: Goal) => goalProgress(g, today), [today]);
 
   return {
-    status, error, busy, logs, goals, recipes, today, progressFor,
+    status, error, busy, logs, goals, recipes, metrics, today, progressFor,
     canBiometric, hasBiometric,
     setup, unlock, unlockWithBiometric, enableBiometric, lock,
     logFood, removeLog, addGoal, removeGoal,
     addRecipe, removeRecipe, logRecipeServing,
+    logMetric, removeMetric,
   };
 }

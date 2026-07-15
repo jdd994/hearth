@@ -158,6 +158,20 @@ input::placeholder { color: var(--ink-faint); }
 .ingredient > span:first-child { flex: 1; }
 .ingredient .ing-g { font-family: var(--mono); font-size: 13px; color: var(--ink-soft); }
 
+/* body metrics */
+.metric-tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+.metric-tab { font-size: 12.5px; padding: 5px 12px; border-radius: 8px; color: var(--ink-faint); background: var(--bg-raised); border: 1px solid var(--line-soft); }
+.metric-tab.active { color: var(--ink); background: var(--surface); border-color: var(--line); }
+.metric-card { border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--bg-raised); padding: 18px; }
+.metric-now { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.metric-val { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 30px; font-weight: 500; color: var(--ink); }
+.metric-change { font-size: 13px; color: var(--ink-faint); }
+.chart { width: 100%; height: 110px; display: block; }
+.metric-list { margin-top: 12px; }
+.metric-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line-soft); font-size: 13.5px; }
+.metric-row-val { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); min-width: 80px; }
+.metric-row-date { flex: 1; color: var(--ink-faint); font-size: 12.5px; }
+
 /* gate (welcome / lock) */
 .gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 26px; }
 .gate-card { width: 100%; max-width: 440px; }
