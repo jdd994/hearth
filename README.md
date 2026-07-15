@@ -46,12 +46,14 @@ screen (see below). No sign-up, nothing to install from a store.
 
 ## What it's for
 
-**The north star is gratitude and helping people.**
-
 Diet culture runs on shame and comparison — red numbers, "bad" foods, streaks,
 bodies measured against a norm. That machinery makes people feel worse and eat
-worse. Hearth inverts it: **awareness over judgement, compassion over control.**
-It exists to make your relationship with food a little kinder and clearer.
+worse. Hearth refuses all of it: **awareness over judgement, compassion over
+control.** It's here to make your relationship with food a little kinder and
+clearer — and, when you don't need it, to get out of your way.
+
+The motive underneath is simple: make something that helps, and be grateful
+you're trusting it with something this personal.
 
 ## What it will never do
 
